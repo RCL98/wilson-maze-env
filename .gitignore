@@ -1,0 +1,6 @@
+/venv
+/wilson_maze_env.egg-info
+/.idea
+*.pyc
+__pycache__/
+/wilson_maze_env/wilson_maze_env.egg-info
