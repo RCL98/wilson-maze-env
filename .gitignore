@@ -3,5 +3,8 @@
 
 /wilson_maze_env.egg-info
 __pycache__/
+/build
+/dist
 
 *.pyc
+.DS_Store
