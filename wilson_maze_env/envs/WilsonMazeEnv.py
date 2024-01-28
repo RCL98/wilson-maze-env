@@ -85,28 +85,30 @@ class WilsonMazeEnv(gym.Env):
 
         assert user_prompt_value is not None or prompts_file is not None, 'Either user_prompt_value or prompts_file must be provided'
 
+        self.current_prompt = None
         self.prompt_size = prompt_size
-        self.prompt_mean = prompt_mean
-        self.prompts = None
-        self.user_prompt_value = user_prompt_value
-        self.current_prompt = chosen_prompt
-        self.chosen_prompt = chosen_prompt
-        if prompts_file is not None:
-            prompts_data = np.load(prompts_file)
-            self.prompts, self.number_of_prompts = {}, {}
-            for k in prompts_data.files:
-                if target_id == int(k[-1]) and not variable_target:
-                    if self.prompt_size:
-                        if prompt_mean:
-                            prompts = prompts_data[k]
-                            assert prompts.shape[1] % self.prompt_size == 0
-                            prompts = np.mean(np.split(prompts, prompts.shape[1] // self.prompt_size), axis=0).tolist()
+        if self.prompt_size:
+            self.prompt_mean = prompt_mean
+            self.prompts = None
+            self.user_prompt_value = user_prompt_value
+            self.current_prompt = chosen_prompt
+            self.chosen_prompt = chosen_prompt
+            if prompts_file is not None:
+                prompts_data = np.load(prompts_file)
+                self.prompts, self.number_of_prompts = {}, {}
+                for k in prompts_data.files:
+                    if target_id == int(k[-1]) and not variable_target:
+                        if self.prompt_size:
+                            if prompt_mean:
+                                prompts = prompts_data[k]
+                                assert prompts.shape[1] % self.prompt_size == 0
+                                prompts = np.mean(np.split(prompts, prompts.shape[1] // self.prompt_size), axis=0).tolist()
+                            else:
+                                prompts = prompts_data[k][:, :self.prompt_size].tolist()
                         else:
-                            prompts = prompts_data[k][:, :self.prompt_size].tolist()
-                    else:
-                        prompts = prompts_data[k].tolist()
-                    self.prompts[k] = prompts
-                    self.number_of_prompts[k] = len(prompts)
+                            prompts = prompts_data[k].tolist()
+                        self.prompts[k] = prompts
+                        self.number_of_prompts[k] = len(prompts)
 
         self.observation_shape = (self.width, self.height)
         if self.obs_type == 'mlp':
@@ -183,7 +185,12 @@ class WilsonMazeEnv(gym.Env):
         self.score = 0
 
         self._generate_base_maze(self.random_seed)
+        self._shortest_path = self._find_shortest_path_bfs()
+        assert self._shortest_path is not None, 'No path found from agent to target'
     
+    def set_user_prompt_value(self, user_prompt_value):
+        self.user_prompt_value = user_prompt_value
+
     def get_number_of_targets(self):
         return self.number_of_targets
     
@@ -377,7 +384,7 @@ class WilsonMazeEnv(gym.Env):
             C = (x1 + length / 2 + padding, y1 + length + padding)
             D = (x1 + padding, y1 + length / 2 + padding)
             print(
-                f'<polygon points="{join_points([A, B, C, D])}" fill="purple" stroke="orange" stroke-width="2"/>',
+                f'<polygon points="{join_points([A, B, C, D])}" fill="#FF33FC" stroke="#F99C04" stroke-width="2"/>',
                 file=ww_f)
 
         def write_cross(ww_f, position):
@@ -452,7 +459,7 @@ class WilsonMazeEnv(gym.Env):
         svg_string_content = svg_string.getvalue()
         svg_string.close()
 
-        # with open(os.path.join(os.path.dirname(__file__), filename), 'w') as f:
+        # with open(os.path.join(os.path.dirname(__file__), 'WilsonMaze.svg'), 'w') as f:
         #     print(svg_string_content, file=f)
 
         return svg_string_content
@@ -482,6 +489,39 @@ class WilsonMazeEnv(gym.Env):
                     np.array(pygame.surfarray.pixels3d(self.window)), axes=(1, 0, 2)
                 )
 
+        return None
+
+    def _get_adjacent_cells(self, position):
+        adjacent_cells = []
+        for movement, direction in self._action_to_direction.values():
+            if not self._is_way_blocked(position, direction):
+                new_position = tuple(position + movement)
+                if not self._is_position_invalid(new_position):
+                    adjacent_cells.append(new_position)
+        return adjacent_cells
+    
+    def _find_shortest_path_bfs(self):
+        start = self.agent_pos
+        end = self.current_target_pos
+
+        queue = [[start]]
+        visited = set()
+
+        while queue:
+            path = queue.pop(0)
+            node = path[-1]
+
+            if node == end:
+                return path
+
+            if tuple(node) not in visited:
+                for adjacent in self._get_adjacent_cells(node):
+                    new_path = list(path)
+                    new_path.append(adjacent)
+                    queue.append(new_path)
+
+                visited.add(tuple(node))
+        
         return None
 
     def _get_obs_cnn(self):
@@ -527,11 +567,10 @@ class WilsonMazeEnv(gym.Env):
     def _change_target(self):
         self.visited_cells = set(tuple(self.agent_pos))
         self.target_id = self.np_random.choice([0, 1, 2, 3][:self.number_of_targets], 1)[0]
-        if self.chosen_prompt is None and self.user_prompt_value is None:
-            self.current_target_pos = self._get_current_target(self.target_id)
+        self.current_target_pos = self._get_current_target(self.target_id)
 
     def _change_target_prompt(self):
-        if self.chosen_prompt is None and self.user_prompt_value is None:
+        if self.prompt_size and self.chosen_prompt is None and self.user_prompt_value is None:
             self.current_prompt = self.np_random.integers(0, self.number_of_prompts[f'arr_{self.target_id}'], 1)[0]
 
     def action_masks(self) -> List[bool]:
@@ -557,8 +596,7 @@ class WilsonMazeEnv(gym.Env):
         else:
             self.visited_cells.clear()
             self.visited_cells.add(self.agent_pos)
-        if self.prompt_size:
-            self._change_target_prompt()
+        self._change_target_prompt()
 
         self.out_of_bounds = 0
         self.wall_collisions = 0
@@ -605,11 +643,8 @@ class WilsonMazeEnv(gym.Env):
             reward = -1.0
             terminated = True
         elif np.array_equal(new_agent_pos, self.current_target_pos):
-            reward = 1.0 + self.width + 2.0 * ((self.timelimit - (current_time - self.t0)) / self.timelimit)
+            reward = 1.0 + 2.0 * ((self.timelimit - (current_time - self.t0)) / self.timelimit)
             terminated = True
-        # elif current_time - self.t0 > self.timelimit or self.score < -0.5 * self.width:
-        #     reward = -1.0
-        #     truncated = True
         else:
             # erase agent from current position
             self._change_cell_value_at_position(self.agent_pos, 0)
@@ -620,7 +655,7 @@ class WilsonMazeEnv(gym.Env):
             # update maze map
             self._change_cell_value_at_position(self.agent_pos, 1)
 
-            reward = -0.05 - manhattan_distance(self.agent_pos, self.current_target_pos) / self.width
+            reward = -0.05 - manhattan_distance(self.agent_pos, self.current_target_pos) / (self.width * np.sqrt(2))
 
         return reward, terminated, truncated
 
@@ -655,6 +690,8 @@ class WilsonMazeEnv(gym.Env):
 
             if tuple(new_agent_pos) in self.visited_cells:
                 reward = -0.25
+            elif tuple(new_agent_pos) not in self._shortest_path:
+                reward = -0.15
             else:
                 reward = -0.05
 
@@ -713,33 +750,41 @@ class WilsonMazeEnv(gym.Env):
 
 
 if __name__ == '__main__':
-    env = WilsonMazeEnv(render_mode="human", size=9, timelimit=30, random_seed=12, obs_type='mlp', prompt_size=0,
-                        variable_target=False, prompts_file='d:\Projects\HiPPO\prompts\small_dataset/train_prompts.npz')
-
-    targets = {0: 0, 1: 0, 2: 0, 3: 0}
-    prompts = defaultdict(int)
-    observation, info = env.reset()
-    targets[info['target']] += 1
-    r = 0
-    t0 = time.time()
-    for i in range(3 * 10**5):
-        time.sleep(1000)
-        action = env.action_space.sample()  # this is where you would insert your policy
-        observation, reward, terminated, truncated, info = env.step(action)
-        prompts[info['prompt']] += 1
-        targets[info['target']] += 1
-        #print(observation[-10:], reward, terminated, truncated, get_action_masks(env))
-        r += reward
+    env = WilsonMazeEnv(render_mode="human", size=7, timelimit=30, random_seed=42, 
+                        obs_type='mlp', prompt_size=0, variable_target=True, target_id=3,
+                        prompts_file='../../../prompts/small_dataset/prompts.npz')
+    
+    obs, info = env.reset()
+    for i in range(1000):
+        action = env.action_space.sample()
+        obs, reward, terminated, truncated, info = env.step(action)
         if terminated or truncated:
-            observation, info = env.reset()
-            targets[info['target']] += 1
-            # print(r)
-            r = 0
+            obs, info = env.reset()
     env.close()
-    print(time.time() - t0)
 
-    total = sum(targets.values())
-    dist = {k: v / total for k, v in sorted(targets.items())}
-    print(dist)
-    # print(prompts)
-    #print(len(prompts.keys()))
+    # targets = {0: 0, 1: 0, 2: 0, 3: 0}
+    # prompts = defaultdict(int)
+    # observation, info = env.reset()
+    # targets[info['target']] += 1
+    # r = 0
+    # t0 = time.time()
+    # for i in range(3 * 10**5):
+    #     action = env.action_space.sample()  # this is where you would insert your policy
+    #     observation, reward, terminated, truncated, info = env.step(action)
+    #     prompts[info['prompt']] += 1
+    #     targets[info['target']] += 1
+    #     #print(observation[-10:], reward, terminated, truncated, get_action_masks(env))
+    #     r += reward
+    #     if terminated or truncated:
+    #         observation, info = env.reset()
+    #         targets[info['target']] += 1
+    #         # print(r)
+    #         r = 0
+    # env.close()
+    # print(time.time() - t0)
+
+    # total = sum(targets.values())
+    # dist = {k: v / total for k, v in sorted(targets.items())}
+    # print(dist)
+    # # print(prompts)
+    # #print(len(prompts.keys()))
