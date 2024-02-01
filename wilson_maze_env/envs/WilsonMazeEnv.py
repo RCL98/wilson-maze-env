@@ -9,6 +9,7 @@ import gymnasium as gym
 from gymnasium import spaces
 from gymnasium.core import ObsType, ActType, RenderFrame
 
+from wilson_maze_env.envs.utils.MazeCell import MazeCell
 from wilson_maze_env.envs.utils.bfs import find_shortest_path_bfs
 from wilson_maze_env.envs.utils.generate_svg import write_svg
 from wilson_maze_env.envs.utils.random_walks import random_walk
@@ -26,29 +27,22 @@ maze_char_map = {
 
 WINDOW_HEIGHT, WINDOW_WIDTH = 500, 500
 ACTION_SIZE = 4
-
-
-class MazeCell:
-    def __init__(self, value):
-        self.value = value
-        self.walls = {'N': 1, 'S': 1, 'W': 1, 'E': 1}
-
-    def knock_wall(self, wall):
-        self.walls[wall] = 0
-
-    def can_go_direction(self, direction: str):
-        return not self.walls[direction]
-
-    def get_state(self):
-        state = list(self.walls.values())
-        return np.array(state, dtype=np.uint8)
+ACTION_SIZE_WITH_COIN = 5
 
 
 class WilsonMazeEnv(gym.Env):
     metadata = {"render_modes": ["human", "text", "rgb_array"], "render_fps": 120}
 
-    def __init__(self, render_mode="text", size=7, timelimit=60, random_seed=42, target_id=0,
-                 variable_target=False, number_of_targets=4, prompts_file=None,
+    TARGET_IDS = {
+        "triangle": 0,
+        "square": 1,
+        "circle": 2,
+        "diamond": 3,
+    }
+    PICK_UP_COINS_ACTION = 4
+
+    def __init__(self, render_mode="text", size=7, timelimit=60, random_seed=42, add_coins=True, target_id=0,
+                 variable_target=False, number_of_targets=4, should_pick_up_coins=False, prompts_file=None,
                  user_prompt_value=None, prompt_size=0, chosen_prompt=None, prompt_mean=False, 
                  terminate_on_wrong_target=False, reward_type='basic'):
         """
@@ -60,9 +54,11 @@ class WilsonMazeEnv(gym.Env):
                 size (int): The size of the maze. The maze will be size x size.
                 timelimit (int): The time limit for the episode.
                 random_seed (int): The random seed to use for the environment.
+                add_coins (bool): Whether to add coins to the maze.
                 target_id (int): The id of the target to reach. Can be 0, 1, 2 or 3.
                 variable_target (bool): Whether to change the target after reaching it.
                 number_of_targets (int): The number of targets to reach. Can be 1, 2, 3 or 4.
+                should_pick_up_coins (bool): Whether the agent should pick up coins or not.
                 prompts_file (str): The path to the file containing the prompts.
                 user_prompt_value (np.ndarray): The prompt to use for the current episode given directly by the user.
                 prompt_size (int): The size of the prompt to use.
@@ -74,9 +70,11 @@ class WilsonMazeEnv(gym.Env):
         self.size = size
         self.timelimit = timelimit
         self.random_seed = random_seed
+        self.add_coins = add_coins
         self.padding = 10
         self.reward_type = reward_type
         self.terminate_on_wrong_target = terminate_on_wrong_target
+        self.should_pick_up_coins = should_pick_up_coins
         self.time_resets = []
         self.time_steps = []
 
@@ -115,8 +113,9 @@ class WilsonMazeEnv(gym.Env):
         self.observation_space = spaces.Box(-np.inf, np.inf,
                                             shape=(prompt_size + 10,), dtype=np.float64)
 
-        # We have 4 actions, corresponding to "right", "up", "left", "down"
-        self.action_space = spaces.Discrete(ACTION_SIZE)
+        # We have 4 moving actions, corresponding to "right", "up", "left", "down" 
+        # and a "pick up coin" action if add_coins is True
+        self.action_space = spaces.Discrete(ACTION_SIZE if not add_coins else ACTION_SIZE_WITH_COIN)
 
         """
         The following dictionary maps abstract actions from `self.action_space` to
@@ -156,6 +155,7 @@ class WilsonMazeEnv(gym.Env):
         self.out_of_bounds = None
         self.wall_collisions = None
 
+        # Agent and target positions
         self.agent_pos = (size // 2, size // 2)
         self.triangle_target_pos = (0, 0)
         self.circle_target_pos = (size - 1, size - 1)
@@ -164,12 +164,14 @@ class WilsonMazeEnv(gym.Env):
         self.targets_positions = []
         for target in [self.triangle_target_pos, self.circle_target_pos, self.square_target_pos,
                        self.diamond_target_pos]:
-            self.targets_positions.append(np.array(target) / (self.size - 1))
+            self.targets_positions.append(np.array(target))
 
+        # Set the target and the current target position
         self.target_id = target_id
         self.current_target_pos = self._get_current_target(target_id)
         self.variable_target = variable_target
 
+        # Set the wrong targets map
         self._wrong_targets_map = {
             self.triangle_target_pos: [self.square_target_pos, self.circle_target_pos, self.diamond_target_pos],
             self.square_target_pos: [self.triangle_target_pos, self.circle_target_pos, self.diamond_target_pos],
@@ -184,6 +186,23 @@ class WilsonMazeEnv(gym.Env):
         self._generate_base_maze(self.random_seed)
         self._shortest_path = find_shortest_path_bfs(self.agent_pos, self.current_target_pos, self)
         assert self._shortest_path is not None, 'No path found from agent to target'
+
+        # Set coins
+        if self.add_coins:
+            self.coins = []
+            
+            for i, target_pos in enumerate([self.triangle_target_pos, self.circle_target_pos, self.square_target_pos,
+                       self.diamond_target_pos]):
+                
+                if i != self.target_id:
+                    shortest_path = find_shortest_path_bfs(self.agent_pos, target_pos, self)
+                else:
+                    shortest_path = self._shortest_path
+
+                chosen_node = shortest_path[len(shortest_path) // 2]
+                self.coins.append(np.array(chosen_node))
+        
+        self.reset_maze_values()
     
     def get_action_to_direction_map(self):
         return self._action_to_direction
@@ -242,6 +261,26 @@ class WilsonMazeEnv(gym.Env):
                 continue
 
             remaining_cells -= random_walk(x, y, self)
+    
+    def _add_coins(self):
+        """
+            Add coins to the maze if add_coins is True.
+        """
+        if self.add_coins:
+            for coin in self.coins:
+                self.maze[coin[0]][coin[1]].value = MazeCell.COIN_VALUE
+            
+    
+    def reset_maze_values(self):
+        for i in range(self.size):
+            for j in range(self.size):
+                self.maze[i][j].value = 0
+        
+        self.maze[self.agent_pos[0]][self.agent_pos[1]].value = MazeCell.AGENT_VALUE
+        for target in self.targets_positions:
+            self.maze[target[0]][target[1]].value = MazeCell.TARGET_VALUE
+        
+        self._add_coins()
 
     def _encode_maze_str(self) -> np.ndarray:
         return np.array([maze_char_map[c] for c in self.__str__()])
@@ -280,13 +319,37 @@ class WilsonMazeEnv(gym.Env):
         return '\n'.join(maze_rows)
 
     def _get_obs(self):
-        if self.prompt_size:
-            if self.user_prompt_value is not None and isinstance(self.user_prompt_value, np.ndarray):
-                prompt = self.user_prompt_value[0]
-            else:
-                prompt = self.prompts[f'arr_{self.target_id}'][self.current_prompt]
-            return np.hstack([prompt[:self.prompt_size], np.hstack(self.targets_positions), np.array(self.agent_pos) / (self.size - 1)])
-        return np.hstack([np.hstack(self.targets_positions), np.array(self.agent_pos) / (self.size - 1)])
+        """
+            Get the observation of the environment.
+            The observation is a concatenation of the agent position, the target position, the coins positions and
+            the prompt if prompt_size is not 0 (in inverse order), where each position is normalized by the maze size.
+        """
+        coins_obs = np.hstack([np.array(coin) / (self.size - 1) for coin in self.coins])
+        target_obs = np.hstack([np.array(target_pos) / (self.size - 1) for target_pos in self.targets_positions])
+        non_prompt_obs = np.hstack([coins_obs, target_obs, np.array(self.agent_pos) / (self.size - 1)])
+
+        if self.prompt_size == 0:
+            return non_prompt_obs
+
+        if self.user_prompt_value is not None and isinstance(self.user_prompt_value, np.ndarray):
+            prompt = self.user_prompt_value[0]
+        else:
+            prompt = self.prompts[f'arr_{self.target_id}'][self.current_prompt]
+        
+        return np.hstack([prompt[:self.prompt_size], non_prompt_obs])
+    
+    def _pick_up_coin(self) -> float:
+        """
+            Reward the agent for picking up a coin if should_pick_up_coins is True.
+            Penalize the agent for picking up a coin if should_pick_up_coins is False.
+            Double penalize the agent for trying to pick up a coin when there is no coin at the current position.
+        """
+        if self.maze[self.agent_pos[0]][self.agent_pos[1]].value == MazeCell.COIN_VALUE + MazeCell.AGENT_VALUE:
+            if self.should_pick_up_coins:
+                return 0.3
+            return -0.3
+        
+        return -0.6
 
     def _change_target(self):
         self.visited_cells = set(tuple(self.agent_pos))
@@ -303,6 +366,12 @@ class WilsonMazeEnv(gym.Env):
             _, direction = self._action_to_direction[action]
             actions_mask.append(self.maze[self.agent_pos[0]][self.agent_pos[1]].can_go_direction(direction))
         return actions_mask
+    
+    def check_if_wrong_target(self):
+        for wrong_target in self._wrong_targets_map[self.current_target_pos]:
+            if np.array_equal(wrong_target, self.agent_pos):
+                return True
+        return False
 
     def reset(
             self,
@@ -313,6 +382,7 @@ class WilsonMazeEnv(gym.Env):
         self.score = 0
         self.steps = 0
         super().reset(seed=seed)
+        self.reset_maze_values()
 
         self.agent_pos = (self.size // 2, self.size // 2)
         if self.variable_target:
@@ -344,12 +414,6 @@ class WilsonMazeEnv(gym.Env):
                              'wall_collisions': self.wall_collisions,
                              'target': self.target_id, 'prompt': self.current_prompt}
 
-    def check_if_wrong_target(self):
-        for wrong_target in self._wrong_targets_map[self.current_target_pos]:
-            if np.array_equal(wrong_target, self.agent_pos):
-                return True
-        return False
-
     def step(
             self, action: ActType
     ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
@@ -357,13 +421,17 @@ class WilsonMazeEnv(gym.Env):
         # start = time.time()
         self.visited_cells.add(tuple(self.agent_pos))
 
-        movement, direction = self._action_to_direction[action]
-        new_agent_pos = self.agent_pos + movement
+        if action != self.__class__.PICK_UP_COINS_ACTION:
+            movement, direction = self._action_to_direction[action]
+            new_agent_pos = self.agent_pos + movement
 
-        if self.reward_type == 'basic':
-            reward, terminated, truncated = calculate_reward_bounded_basic(new_agent_pos, direction, self)
+            if self.reward_type == 'basic':
+                reward, terminated, truncated = calculate_reward_bounded_basic(new_agent_pos, direction, self)
+            else:
+                reward, terminated, truncated = calculate_reward_manhattan(new_agent_pos, direction, self)
         else:
-            reward, terminated, truncated = calculate_reward_manhattan(new_agent_pos, direction, self)
+            truncated, terminated = False, False
+            reward = self._pick_up_coin()
 
         if self.render_mode == "human":
             self.render()
@@ -428,11 +496,15 @@ class WilsonMazeEnv(gym.Env):
 
 if __name__ == '__main__':
     env = WilsonMazeEnv(render_mode="human", size=7, timelimit=30, random_seed=42,
-                        prompt_size=0, variable_target=False, target_id=3,
-                        user_prompt_value=np.array([0, 0, 0, 0, 0, 0, 0, 0, 0]),)
-                        # prompts_file='../../../prompts/small_dataset/prompts.npz')
+                        add_coins=True, prompt_size=0, variable_target=False, target_id=3,
+                        should_pick_up_coins=True, user_prompt_value=np.array([0, 0, 0, 0, 0, 0, 0, 0, 0]))
     
     obs, info = env.reset()
+    for i in range(env.size):
+        for j in range(env.size):
+            print(env.maze[i][j].value, end=' ')
+        print()
+        
     for i in range(1000):
         action = env.action_space.sample()
         obs, reward, terminated, truncated, info = env.step(action)

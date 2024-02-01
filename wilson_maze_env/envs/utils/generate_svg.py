@@ -2,6 +2,7 @@ import io
 import os
 
 from wilson_maze_env.envs import WilsonMazeEnv
+from wilson_maze_env.envs.utils.MazeCell import MazeCell
 
 def get_cell_box_coordinates(position: tuple[int, int], scx: float, scy: float):
             return position[0] * scx, position[1] * scy, (position[0] + 1) * scx, (position[1] + 1) * scy
@@ -159,6 +160,28 @@ def write_cross(svg_string: any, scx: float, scy: float, env: WilsonMazeEnv) -> 
     print(
         f'<polygon points="{join_points([A, B, C, D, E, F, G, H, I, J, K, L])}" fill="blue" stroke="red" stroke-width="2"/>',
         file=svg_string)
+    
+def write_coin(svg_string: any, cell_position: tuple[int, int], scx: float, scy: float, env: WilsonMazeEnv) -> None:
+    """
+        Write a coin to the SVG string handle svg_string at the given position.
+
+        Args:
+            svg_string: The SVG string.
+            cell_position: The position.
+            scx: The scaling factor for the x coordinate.
+            scy: The scaling factor for the y coordinate.
+            env: The environment.
+    """
+    x1, y1, x2, y2 = get_cell_box_coordinates(cell_position, scx, scy)
+    
+    # caclulate necessary values
+    cell_size = x2 - x1
+    factor = 7
+    radius = max(5, cell_size / factor)
+    
+    print(
+        f'<circle cx="{x1 + cell_size // 2}" cy="{y1 + cell_size // 2}" r="{radius}" fill="yellow" stroke="black" stroke-width="2"/>',
+        file=svg_string)
 
 def write_svg(env: WilsonMazeEnv, filename: str = None) -> str:
         """
@@ -185,25 +208,7 @@ def write_svg(env: WilsonMazeEnv, filename: str = None) -> str:
                       -env.padding, -env.padding, env.window_width + 2 * env.padding,
                       env.window_height + 2 * env.padding),
               file=svg_string)
-
-        # Draw the "South" and "East" walls of each cell, if present (these
-        # are the "North" and "West" walls of a neighbouring cell in
-        # general, of course).
-        for x in range(env.size):
-            for y in range(env.size):
-                if env.maze[x][y].walls['S']:
-                    x1, y1, x2, y2 = x * scx, (y + 1) * scy, (x + 1) * scx, (y + 1) * scy
-                    write_wall(svg_string, x1, y1, x2, y2)
-                if env.maze[x][y].walls['E']:
-                    x1, y1, x2, y2 = (x + 1) * scx, y * scy, (x + 1) * scx, (y + 1) * scy
-                    write_wall(svg_string, x1, y1, x2, y2)
-        # Draw the North and West maze border, which won't have been drawn
-        # by the procedure above.
-        print('<line x1="0" y1="0" x2="{}" y2="0" stroke="black" stroke-width="5"/>'.format(env.window_width),
-              file=svg_string)
-        print('<line x1="0" y1="0" x2="0" y2="{}" stroke="black" stroke-width="5"/>'.format(env.window_height),
-              file=svg_string)
-
+        
         # Draw agent and targets
         write_triangle(svg_string, env.triangle_target_pos, scx, scy)
         write_circle(svg_string, env.circle_target_pos, scx, scy)
@@ -219,6 +224,29 @@ def write_svg(env: WilsonMazeEnv, filename: str = None) -> str:
             write_circle(svg_string, env.agent_pos, scx, scy)
         else:
             write_diamond(svg_string, env.agent_pos, scx, scy)
+
+        # Draw the "South" and "East" walls of each cell, if present (these
+        # are the "North" and "West" walls of a neighbouring cell in
+        # general, of course).
+        for x in range(env.size):
+            for y in range(env.size):
+                if env.maze[x][y].walls['S']:
+                    x1, y1, x2, y2 = x * scx, (y + 1) * scy, (x + 1) * scx, (y + 1) * scy
+                    write_wall(svg_string, x1, y1, x2, y2)
+                if env.maze[x][y].walls['E']:
+                    x1, y1, x2, y2 = (x + 1) * scx, y * scy, (x + 1) * scx, (y + 1) * scy
+                    write_wall(svg_string, x1, y1, x2, y2)
+                
+                # Draw coins
+                if env.maze[x][y].value == MazeCell.COIN_VALUE or env.maze[x][y].value == MazeCell.AGENT_VALUE + MazeCell.COIN_VALUE:
+                    write_coin(svg_string, (x, y), scx, scy, env)
+
+        # Draw the North and West maze border, which won't have been drawn
+        # by the procedure above.
+        print('<line x1="0" y1="0" x2="{}" y2="0" stroke="black" stroke-width="5"/>'.format(env.window_width),
+              file=svg_string)
+        print('<line x1="0" y1="0" x2="0" y2="{}" stroke="black" stroke-width="5"/>'.format(env.window_height),
+              file=svg_string)
 
         # close svg file
         print('</svg>', file=svg_string)

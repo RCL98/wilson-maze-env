@@ -2,6 +2,7 @@ import time
 import numpy as np
 
 from wilson_maze_env.envs import WilsonMazeEnv
+from MazeCell import MazeCell
 
 def manhattan_distance(a, b):
     return np.sum(np.abs(np.array(a) - np.array(b))).item()
@@ -47,7 +48,8 @@ def calculate_reward_manhattan(new_agent_pos: tuple[int, int], direction: str, e
         env.agent_pos = new_agent_pos
 
         # update maze map
-        env.change_cell_value_at_position(env.agent_pos, 1)
+        current_value = env.maze[env.agent_pos[0]][env.agent_pos[1]].value
+        env.change_cell_value_at_position(env.agent_pos, MazeCell.AGENT_VALUE + current_value)
 
         reward = -0.05 - manhattan_distance(env.agent_pos, env.current_target_pos) / (env.size * np.sqrt(2))
 
@@ -97,7 +99,8 @@ def calculate_reward_bounded_basic(new_agent_pos: tuple[int, int], direction: st
         env.agent_pos = new_agent_pos
 
         # update maze map
-        env.change_cell_value_at_position(env.agent_pos, 1)
+        current_value = env.maze[env.agent_pos[0]][env.agent_pos[1]].value
+        env.change_cell_value_at_position(env.agent_pos, MazeCell.AGENT_VALUE + current_value)
 
         if tuple(new_agent_pos) in env.visited_cells:
             reward = -0.25
