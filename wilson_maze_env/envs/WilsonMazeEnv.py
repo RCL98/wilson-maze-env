@@ -344,6 +344,9 @@ class WilsonMazeEnv(gym.Env):
             Penalize the agent for picking up a coin if should_pick_up_coins is False.
             Double penalize the agent for trying to pick up a coin when there is no coin at the current position.
         """
+        if not self.add_coins:
+            raise ValueError('Should not be able to pick up coins if add_coins is False')
+        
         if self.maze[self.agent_pos[0]][self.agent_pos[1]].value == MazeCell.COIN_VALUE + MazeCell.AGENT_VALUE:
             if self.should_pick_up_coins:
                 return 0.3
