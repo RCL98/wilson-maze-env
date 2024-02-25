@@ -42,8 +42,8 @@ class WilsonMazeEnv(gym.Env):
     PICK_UP_COINS_ACTION = 4
 
     def __init__(self, render_mode="text", size=7, timelimit=60, random_seed=42, 
-                 target_id = 0,number_of_targets=4, add_coins=True, should_pick_up_coins: bool | np.ndarray = False, 
-                 prompts: np.ndarray=None, user_prompt_value=None, prompt_size=0, chosen_prompt=None, 
+                 target_id = 0,number_of_targets=4, add_coins=True, should_pickup_coins: bool | np.ndarray = False, 
+                 prompts: np.ndarray=None, user_prompt=None, prompt_size=0, chosen_prompt=None, 
                  prompt_mean=False, terminate_on_wrong_target=False, reward_type='basic'):
         """
             Wilson's maze environment for reinforcement learning.
@@ -57,9 +57,9 @@ class WilsonMazeEnv(gym.Env):
                 add_coins (bool): Whether to add coins to the maze.
                 target_id (int): The id of the target to reach. Can be 0, 1, 2 or 3. 
                 number_of_targets (int): The number of targets to reach. Can be 1, 2, 3 or 4.
-                should_pick_up_coins (bool | np.ndarray): Whether the agent should pick up coins.
+                should_pickup_coins (bool | np.ndarray): Whether the agent should pick up coins.
                 prompts (np.nddaray): The prompts to use.
-                user_prompt_value (np.ndarray): The prompt to use for the current episode given directly by the user.
+                user_prompt (np.ndarray): The prompt to use for the current episode given directly by the user.
                 prompt_size (int): The size of the prompt to use.
                 chosen_prompt (int): The id of the prompt to use.
                 prompt_mean (bool): Whether to use the mean of the prompts.
@@ -77,27 +77,36 @@ class WilsonMazeEnv(gym.Env):
         self.time_steps = []
         self.number_of_targets = number_of_targets
 
-        assert user_prompt_value is not None or prompts is not None, 'Either user_prompt_value or prompts_file must be provided'
+        assert user_prompt is not None or prompts is not None, 'Either user_prompt or prompts_file must be provided'
 
         self.current_prompt = None
         self.prompt_size = prompt_size
         if self.prompt_size:
             self.prompt_mean = prompt_mean
             self.prompts = None
-            self.user_prompt_value = user_prompt_value
+            self.user_prompt = user_prompt
             self.current_prompt = chosen_prompt
             self.chosen_prompt = chosen_prompt
             
             if prompts is not None:
                 if prompt_mean:
                     assert prompts.shape[1] % self.prompt_size == 0
-                    prompts = np.mean(np.split(prompts, prompts.shape[1] // self.prompt_size), axis=0).tolist()
+                    prompts = np.mean(np.split(prompts, prompts.shape[1] // self.prompt_size, axis=1), axis=0)
                 self.prompts = prompts
+            elif prompt_mean:
+                self.user_prompt = np.mean(np.split(user_prompt, user_prompt.shape[0] // self.prompt_size, axis=0), axis=0)
                         
-
+        # The observation space is a 2D array of size (size, size)
         self.observation_shape = (self.size, self.size)
+
+        # The observations space is a 1D array of size:
+        # - prompt_size if prompt_size is not 0
+        # - agent position = (2)
+        # - target positions = (2 * 4)
+        # - coins positions = (2 * 4) if add_coins is True
+        obs_space_size = prompt_size + 10 + (8 if add_coins else 0)
         self.observation_space = spaces.Box(-np.inf, np.inf,
-                                            shape=(prompt_size + 10,), dtype=np.float64)
+                                            shape=(obs_space_size,), dtype=np.float64)
 
         # We have 4 moving actions, corresponding to "right", "up", "left", "down" 
         # and a "pick up coin" action if add_coins is True
@@ -176,12 +185,12 @@ class WilsonMazeEnv(gym.Env):
         if self.add_coins:
             self.coins = []
 
-            if isinstance(should_pick_up_coins, np.ndarray):
-                assert isinstance(prompts, np.ndarray), 'Prompts must be provided if should_pick_up_coins is an array'
-                assert should_pick_up_coins.shape[0] == prompts.shape[0], 'The number of prompts must be the same as the number of should_pick_up_coins'
-                self.should_pick_up_coins = should_pick_up_coins
+            if isinstance(should_pickup_coins, np.ndarray):
+                assert isinstance(prompts, np.ndarray), 'Prompts must be provided if should_pickup_coins is an array'
+                assert should_pickup_coins.shape[0] == prompts.shape[0], 'The number of prompts must be the same as the number of should_pickup_coins'
+                self.should_pickup_coins = should_pickup_coins
             else:
-                self.pick_up_coins = should_pick_up_coins
+                self.pick_up_coins = should_pickup_coins
             
             for i, target_pos in enumerate([self.triangle_target_pos, self.circle_target_pos, self.square_target_pos,
                        self.diamond_target_pos]):
@@ -199,8 +208,8 @@ class WilsonMazeEnv(gym.Env):
     def get_action_to_direction_map(self):
         return self._action_to_direction
     
-    def set_user_prompt_value(self, user_prompt_value):
-        self.user_prompt_value = user_prompt_value
+    def set_user_prompt(self, user_prompt):
+        self.user_prompt = user_prompt
 
     def get_number_of_targets(self):
         return self.number_of_targets
@@ -320,8 +329,8 @@ class WilsonMazeEnv(gym.Env):
         if self.prompt_size == 0:
             return non_prompt_obs
 
-        if self.user_prompt_value is not None and isinstance(self.user_prompt_value, np.ndarray):
-            prompt = self.user_prompt_value[0]
+        if self.user_prompt is not None and isinstance(self.user_prompt, np.ndarray):
+            prompt = self.user_prompt
         else:
             prompt = self.prompts[self.current_prompt]
         
@@ -344,15 +353,20 @@ class WilsonMazeEnv(gym.Env):
         return -0.6
 
     def _change_target_prompt(self):
-        if self.prompt_size and self.chosen_prompt is None and self.user_prompt_value is None:
+        if self.prompt_size and self.chosen_prompt is None and self.user_prompt is None:
             self.current_prompt = self.np_random.integers(0, self.prompts.shape[0], 1)[0]
-            self.pick_up_coins = self.should_pick_up_coins[self.current_prompt]
+            self.pick_up_coins = self.should_pickup_coins[self.current_prompt]
 
     def action_masks(self) -> List[bool]:
         actions_mask = []
         for action in range(self.action_space.n):
-            _, direction = self._action_to_direction[action]
-            actions_mask.append(self.maze[self.agent_pos[0]][self.agent_pos[1]].can_go_direction(direction))
+            if action != self.__class__.PICK_UP_COINS_ACTION:
+                _, direction = self._action_to_direction[action]
+                actions_mask.append(self.maze[self.agent_pos[0]][self.agent_pos[1]].can_go_direction(direction))
+            elif self.maze[self.agent_pos[0]][self.agent_pos[1]].value == MazeCell.COIN_VALUE + MazeCell.AGENT_VALUE:
+                actions_mask.append(True)
+            else:
+                actions_mask.append(False)
         return actions_mask
     
     def check_if_wrong_target(self):
@@ -481,8 +495,8 @@ class WilsonMazeEnv(gym.Env):
 
 if __name__ == '__main__':
     env = WilsonMazeEnv(render_mode="human", size=7, timelimit=30, random_seed=42,
-                        add_coins=True, prompt_size=0, target_id=3, should_pick_up_coins=True, 
-                        user_prompt_value=np.array([0, 0, 0, 0, 0, 0, 0, 0, 0]))
+                        add_coins=True, prompt_size=0, target_id=3, should_pickup_coins=True, 
+                        user_prompt=np.array([0, 0, 0, 0, 0, 0, 0, 0, 0]))
     
     obs, info = env.reset()
     for i in range(env.size):
