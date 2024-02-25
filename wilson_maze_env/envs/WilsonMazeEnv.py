@@ -179,8 +179,9 @@ class WilsonMazeEnv(gym.Env):
             if isinstance(should_pick_up_coins, np.ndarray):
                 assert isinstance(prompts, np.ndarray), 'Prompts must be provided if should_pick_up_coins is an array'
                 assert should_pick_up_coins.shape[0] == prompts.shape[0], 'The number of prompts must be the same as the number of should_pick_up_coins'
-            
-            self.should_pick_up_coins = should_pick_up_coins
+                self.should_pick_up_coins = should_pick_up_coins
+            else:
+                self.pick_up_coins = should_pick_up_coins
             
             for i, target_pos in enumerate([self.triangle_target_pos, self.circle_target_pos, self.square_target_pos,
                        self.diamond_target_pos]):
@@ -328,15 +329,15 @@ class WilsonMazeEnv(gym.Env):
     
     def _pick_up_coin(self) -> float:
         """
-            Reward the agent for picking up a coin if should_pick_up_coins is True.
-            Penalize the agent for picking up a coin if should_pick_up_coins is False.
+            Reward the agent for picking up a coin if pick_up_coins is True.
+            Penalize the agent for picking up a coin if pick_up_coins is False.
             Double penalize the agent for trying to pick up a coin when there is no coin at the current position.
         """
         if not self.add_coins:
             raise ValueError('Should not be able to pick up coins if add_coins is False')
         
         if self.maze[self.agent_pos[0]][self.agent_pos[1]].value == MazeCell.COIN_VALUE + MazeCell.AGENT_VALUE:
-            if self.should_pick_up_coins[self.current_prompt]:
+            if self.pick_up_coins:
                 return 0.3
             return -0.3
         
@@ -345,6 +346,7 @@ class WilsonMazeEnv(gym.Env):
     def _change_target_prompt(self):
         if self.prompt_size and self.chosen_prompt is None and self.user_prompt_value is None:
             self.current_prompt = self.np_random.integers(0, self.prompts.shape[0], 1)[0]
+            self.pick_up_coins = self.should_pick_up_coins[self.current_prompt]
 
     def action_masks(self) -> List[bool]:
         actions_mask = []
@@ -371,11 +373,8 @@ class WilsonMazeEnv(gym.Env):
         self.reset_maze_values()
 
         self.agent_pos = (self.size // 2, self.size // 2)
-        if self.variable_target:
-            self._change_target()
-        else:
-            self.visited_cells.clear()
-            self.visited_cells.add(self.agent_pos)
+        self.visited_cells.clear()
+        self.visited_cells.add(self.agent_pos)
         self._change_target_prompt()
 
         self.out_of_bounds = 0
@@ -424,7 +423,7 @@ class WilsonMazeEnv(gym.Env):
 
         observation = self._get_obs()
 
-        # if self.variable_target and self.random_target_on_step and self.steps >= self.size * np.sqrt(
+        # if self.random_target_on_step and self.steps >= self.size * np.sqrt(
         #         2) and self.np_random.uniform(0, 1) >= 0.75:
         #     self._change_target()
         #     self._change_target_prompt_prompt()
@@ -482,8 +481,8 @@ class WilsonMazeEnv(gym.Env):
 
 if __name__ == '__main__':
     env = WilsonMazeEnv(render_mode="human", size=7, timelimit=30, random_seed=42,
-                        add_coins=True, prompt_size=0, variable_target=False, target_id=3,
-                        should_pick_up_coins=True, user_prompt_value=np.array([0, 0, 0, 0, 0, 0, 0, 0, 0]))
+                        add_coins=True, prompt_size=0, target_id=3, should_pick_up_coins=True, 
+                        user_prompt_value=np.array([0, 0, 0, 0, 0, 0, 0, 0, 0]))
     
     obs, info = env.reset()
     for i in range(env.size):

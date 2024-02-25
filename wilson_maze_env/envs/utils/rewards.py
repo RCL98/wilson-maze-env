@@ -2,7 +2,7 @@ import time
 import numpy as np
 
 from wilson_maze_env.envs import WilsonMazeEnv
-from MazeCell import MazeCell
+from .MazeCell import MazeCell
 
 def manhattan_distance(a, b):
     return np.sum(np.abs(np.array(a) - np.array(b))).item()
