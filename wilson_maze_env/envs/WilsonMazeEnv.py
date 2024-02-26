@@ -362,10 +362,11 @@ class WilsonMazeEnv(gym.Env):
     def _change_target_prompt(self):
         if self.prompt_size and self.chosen_prompt is None and self.user_prompt is None:
             self.current_prompt = self.np_random.integers(0, self.prompts.shape[0], 1)[0]
-            if self.should_pickup_coins is None:
-                self.pick_up_coins = self.pick_up_coins
-            else:
-                self.pick_up_coins = self.should_pickup_coins[self.current_prompt]
+            if self.add_coins:
+                if self.should_pickup_coins is None:
+                    self.pick_up_coins = self.pick_up_coins
+                else:
+                    self.pick_up_coins = self.should_pickup_coins[self.current_prompt]
 
     def action_masks(self) -> List[bool]:
         actions_mask = []
