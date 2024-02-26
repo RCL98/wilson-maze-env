@@ -329,7 +329,7 @@ class WilsonMazeEnv(gym.Env):
             The observation is a concatenation of the agent position, the target position, the coins positions and
             the prompt if prompt_size is not 0 (in inverse order), where each position is normalized by the maze size.
         """
-        coins_obs = np.hstack([np.array(coin) / (self.size - 1) for coin in self.coins])
+        coins_obs = np.hstack([np.array(coin) / (self.size - 1) for coin in self.coins]) if self.add_coins else []
         target_obs = np.hstack([np.array(target_pos) / (self.size - 1) for target_pos in self.targets_positions])
         non_prompt_obs = np.hstack([coins_obs, target_obs, np.array(self.agent_pos) / (self.size - 1)])
 
@@ -505,7 +505,7 @@ class WilsonMazeEnv(gym.Env):
 
 if __name__ == '__main__':
     env = WilsonMazeEnv(render_mode="human", size=7, timelimit=30, random_seed=42,
-                        add_coins=True, prompt_size=0, target_id=3, should_pickup_coins=True, 
+                        add_coins=False, prompt_size=0, target_id=3, should_pickup_coins=True,
                         user_prompt=np.array([0, 0, 0, 0, 0, 0, 0, 0, 0]))
     
     obs, info = env.reset()
