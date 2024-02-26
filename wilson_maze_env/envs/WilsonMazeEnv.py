@@ -268,7 +268,7 @@ class WilsonMazeEnv(gym.Env):
 
             remaining_cells -= random_walk(x, y, self)
 
-    def _add_coins(self):
+    def _add_coins_to_maze(self):
         """
             Add coins to the maze if add_coins is True.
         """
@@ -285,7 +285,7 @@ class WilsonMazeEnv(gym.Env):
         for target in self.targets_positions:
             self.maze[target[0]][target[1]].value = MazeCell.TARGET_VALUE
 
-        self._add_coins()
+        self._add_coins_to_maze()
 
     def _encode_maze_str(self) -> np.ndarray:
         return np.array([maze_char_map[c] for c in self.__str__()])
