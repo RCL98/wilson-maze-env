@@ -42,7 +42,8 @@ def calculate_reward_manhattan(new_agent_pos: tuple[int, int], direction: str, e
         terminated = True
     else:
         # erase agent from current position
-        env.change_cell_value_at_position(env.agent_pos, 0)
+        current_value = env.maze[env.agent_pos[0]][env.agent_pos[1]].value
+        env.change_cell_value_at_position(env.agent_pos, current_value - MazeCell.AGENT_VALUE)
 
         # change agent position
         env.agent_pos = new_agent_pos
@@ -93,7 +94,8 @@ def calculate_reward_bounded_basic(new_agent_pos: tuple[int, int], direction: st
         terminated = True
     else:
         # erase agent from current position
-        env.change_cell_value_at_position(env.agent_pos, 0)
+        current_value = env.maze[env.agent_pos[0]][env.agent_pos[1]].value
+        env.change_cell_value_at_position(env.agent_pos, current_value - MazeCell.AGENT_VALUE)
 
         # change agent position
         env.agent_pos = new_agent_pos
