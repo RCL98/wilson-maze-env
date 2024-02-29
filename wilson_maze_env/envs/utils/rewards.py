@@ -112,3 +112,18 @@ def calculate_reward_bounded_basic(new_agent_pos: tuple[int, int], direction: st
             reward = -0.05
 
     return reward, terminated, truncated
+
+def pick_up_coin(agent_pos: tuple[int, int], pick_up_coins: True, env: WilsonMazeEnv) -> float:
+    """
+        Reward the agent for picking up a coin if pick_up_coins is True.
+        Penalize the agent for picking up a coin if pick_up_coins is False.
+        Double penalize the agent for trying to pick up a coin when there is no coin at the current position.
+    """
+
+    if env.maze[agent_pos[0]][agent_pos[1]].value == MazeCell.COIN_VALUE + MazeCell.AGENT_VALUE:
+        env.maze[agent_pos[0]][agent_pos[1]].value -= MazeCell.COIN_VALUE
+        if pick_up_coins:
+            return 0.3
+        return -0.3
+
+    return -0.6

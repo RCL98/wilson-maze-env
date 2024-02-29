@@ -13,7 +13,7 @@ from wilson_maze_env.envs.utils.MazeCell import MazeCell
 from wilson_maze_env.envs.utils.bfs import find_shortest_path_bfs
 from wilson_maze_env.envs.utils.generate_svg import write_svg
 from wilson_maze_env.envs.utils.random_walks import random_walk
-from wilson_maze_env.envs.utils.rewards import calculate_reward_bounded_basic, calculate_reward_manhattan
+from wilson_maze_env.envs.utils.rewards import calculate_reward_bounded_basic, calculate_reward_manhattan, pick_up_coin
 
 maze_char_map = {
     '-': 0,
@@ -102,22 +102,6 @@ class WilsonMazeEnv(gym.Env):
             else:
                 self.user_prompt = self.user_prompt[:self.prompt_size]
 
-        # The observation space is a 2D array of size (size, size)
-        self.observation_shape = (self.size, self.size)
-
-        # The observations space is a 1D array of size:
-        # - prompt_size if prompt_size is not 0
-        # - agent position = (2)
-        # - target positions = (2 * 4)
-        # - coins positions = (2 * 4) if add_coins is True
-        obs_space_size = prompt_size + 10 + (8 if add_coins else 0)
-        self.observation_space = spaces.Box(-np.inf, np.inf,
-                                            shape=(obs_space_size,), dtype=np.float64)
-
-        # We have 4 moving actions, corresponding to "right", "up", "left", "down" 
-        # and a "pick up coin" action if add_coins is True
-        self.action_space = spaces.Discrete(ACTION_SIZE if not add_coins else ACTION_SIZE_WITH_COIN)
-
         """
             The following dictionary maps abstract actions from `self.action_space` to
             the direction we will walk in if that action is taken.
@@ -200,16 +184,34 @@ class WilsonMazeEnv(gym.Env):
                 self.should_pickup_coins = None
                 self.pick_up_coins = should_pickup_coins
 
-            for i, target_pos in enumerate([self.triangle_target_pos, self.circle_target_pos, self.square_target_pos,
-                                            self.diamond_target_pos]):
+            for i, target_pos in enumerate(self.targets_positions):
 
                 if i != self.target_id:
-                    shortest_path = find_shortest_path_bfs(self.agent_pos, target_pos, self)
+                    shortest_path = find_shortest_path_bfs(self.agent_pos, tuple(target_pos), self)
                 else:
                     shortest_path = self._shortest_path
+                
+                for i, node in enumerate(shortest_path):
+                    if not np.any(np.all(node == np.vstack(self.targets_positions), axis=1)) and i % 2 == 1:
+                        self.coins.append(np.array(node))
 
-                chosen_node = shortest_path[len(shortest_path) // 2]
-                self.coins.append(np.array(chosen_node))
+        # The observation space is a 2D array of size (size, size)
+        self.observation_shape = (self.size, self.size)
+
+        # The observations space is a 1D array of size:
+        # - prompt_size if prompt_size is not 0
+        # - agent position = (2)
+        # - target positions = (2 * 4)
+        # - coins positions and values = (3 * number_of_coins)
+        obs_space_size = prompt_size + 10
+        if add_coins:
+            obs_space_size += len(self.coins) * 3
+        self.observation_space = spaces.Box(-np.inf, np.inf,
+                                            shape=(obs_space_size,), dtype=np.float64)
+
+        # We have 4 moving actions, corresponding to "right", "up", "left", "down" 
+        # and a "pick up coin" action if add_coins is True
+        self.action_space = spaces.Discrete(ACTION_SIZE if not add_coins else ACTION_SIZE_WITH_COIN)
 
         self.reset_maze_values()
 
@@ -326,10 +328,19 @@ class WilsonMazeEnv(gym.Env):
     def _get_obs(self):
         """
             Get the observation of the environment.
-            The observation is a concatenation of the agent position, the target position, the coins positions and
+            The observation is a concatenation of the agent position, the target position, the coins positions and values and
             the prompt if prompt_size is not 0 (in inverse order), where each position is normalized by the maze size.
         """
-        coins_obs = np.hstack([np.array(coin) / (self.size - 1) for coin in self.coins]) if self.add_coins else []
+        coins_obs = []
+        if self.add_coins:
+            for coin in self.coins:
+                coins_obs.append(np.array(coin) / (self.size - 1))
+                if self.maze[coin[0]][coin[1]].value == MazeCell.COIN_VALUE:
+                    coins_obs.append(1)
+                else:
+                    coins_obs.append(0)
+        coins_obs = np.hstack(coins_obs)
+
         target_obs = np.hstack([np.array(target_pos) / (self.size - 1) for target_pos in self.targets_positions])
         non_prompt_obs = np.hstack([coins_obs, target_obs, np.array(self.agent_pos) / (self.size - 1)])
 
@@ -342,22 +353,6 @@ class WilsonMazeEnv(gym.Env):
             prompt = self.prompts[self.current_prompt]
 
         return np.hstack([prompt, non_prompt_obs])
-
-    def _pick_up_coin(self) -> float:
-        """
-            Reward the agent for picking up a coin if pick_up_coins is True.
-            Penalize the agent for picking up a coin if pick_up_coins is False.
-            Double penalize the agent for trying to pick up a coin when there is no coin at the current position.
-        """
-        if not self.add_coins:
-            raise ValueError('Should not be able to pick up coins if add_coins is False')
-
-        if self.maze[self.agent_pos[0]][self.agent_pos[1]].value == MazeCell.COIN_VALUE + MazeCell.AGENT_VALUE:
-            if self.pick_up_coins:
-                return 0.3
-            return -0.3
-
-        return -0.6
 
     def _change_target_prompt(self):
         if self.prompt_size and self.chosen_prompt is None and self.user_prompt is None:
@@ -440,8 +435,11 @@ class WilsonMazeEnv(gym.Env):
             else:
                 reward, terminated, truncated = calculate_reward_manhattan(new_agent_pos, direction, self)
         else:
+            if self.add_coins == False:
+                raise ValueError('Coins cannot be picked up if add_coins is False')
+            
             truncated, terminated = False, False
-            reward = self._pick_up_coin()
+            reward = pick_up_coin(self.agent_pos, self.pick_up_coins, self)
 
         if self.render_mode == "human":
             self.render()
@@ -506,7 +504,7 @@ class WilsonMazeEnv(gym.Env):
 
 if __name__ == '__main__':
     env = WilsonMazeEnv(render_mode="human", size=7, timelimit=30, random_seed=42,
-                        add_coins=False, prompt_size=0, target_id=3, should_pickup_coins=True,
+                        add_coins=True, prompt_size=0, target_id=3, should_pickup_coins=True,
                         user_prompt=np.array([0, 0, 0, 0, 0, 0, 0, 0, 0]))
     
     obs, info = env.reset()
@@ -518,6 +516,7 @@ if __name__ == '__main__':
     for i in range(1000):
         action = env.action_space.sample()
         obs, reward, terminated, truncated, info = env.step(action)
+        print(obs.shape, reward, terminated, truncated, info)
         if terminated or truncated:
             obs, info = env.reset()
     env.close()
