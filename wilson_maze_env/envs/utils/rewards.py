@@ -7,6 +7,40 @@ from .MazeCell import MazeCell
 def manhattan_distance(a, b):
     return np.sum(np.abs(np.array(a) - np.array(b))).item()
 
+def nr_of_coins_in_shortest_path(env: WilsonMazeEnv) -> tuple[int, int]:
+    """
+        Returns the number of coins left in the shortest path to the target and
+        the initial number of coins in the shortest path to the target.
+    """
+
+    coins = np.vstack(env.coins)
+    left_coins, initial_coins = 0, 0
+    for node in env._shortest_path:
+        if env.maze[node[0]][node[1]].value == MazeCell.COIN_VALUE:
+            left_coins += 1
+        if np.any(np.all(node == coins, axis=1)):
+            initial_coins += 1
+
+    return left_coins, initial_coins
+
+def reward_for_finishing(env: WilsonMazeEnv) -> float:
+    if not env.add_coins:
+        return 1.0
+    
+    left_coins, init_coins = nr_of_coins_in_shortest_path(env)
+    if env.pick_up_coins:
+        if left_coins == 0:
+            reward = 2.0
+        else:
+            reward = 1.0
+    else:
+        if left_coins == init_coins:
+            reward = 2.0
+        else:
+            reward = 1.0
+    
+    return reward
+
 def calculate_reward_manhattan(new_agent_pos: tuple[int, int], direction: str, env: WilsonMazeEnv) -> tuple[float, bool, bool]:
     """
         If the agent reaches the target, it receives a reward of 1.0 + 2.0 * ((timelimit - (current_time - t0)) / timelimit).
@@ -38,7 +72,8 @@ def calculate_reward_manhattan(new_agent_pos: tuple[int, int], direction: str, e
         reward = -1.0
         terminated = True
     elif np.array_equal(new_agent_pos, env.current_target_pos):
-        reward = 1.0 + 2.0 * ((env.timelimit - (current_time - env.t0)) / env.timelimit)
+        reward = reward_for_finishing(env)
+        reward = reward + 2.0 * ((env.timelimit - (current_time - env.t0)) / env.timelimit)
         terminated = True
     else:
         # erase agent from current position
@@ -90,7 +125,7 @@ def calculate_reward_bounded_basic(new_agent_pos: tuple[int, int], direction: st
         reward = -3.0
         terminated = True
     elif np.array_equal(new_agent_pos, env.current_target_pos):
-        reward = 1.0
+        reward = reward_for_finishing(env)
         terminated = True
     else:
         # erase agent from current position

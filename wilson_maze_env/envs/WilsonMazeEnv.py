@@ -139,6 +139,8 @@ class WilsonMazeEnv(gym.Env):
         self.t0 = None
         self.out_of_bounds = None
         self.wall_collisions = None
+        self.good_picked_up_coins = 0
+        self.bad_picked_up_coins = 0
 
         # Agent and target positions
         self.agent_pos = (size // 2, size // 2)
@@ -399,6 +401,8 @@ class WilsonMazeEnv(gym.Env):
 
         self.out_of_bounds = 0
         self.wall_collisions = 0
+        self.good_picked_up_coins = 0
+        self.bad_picked_up_coins = 0
 
         if self.render_mode != "text":
             pygame.init()
@@ -415,9 +419,7 @@ class WilsonMazeEnv(gym.Env):
         observation = self._get_obs()
         self.t0 = time.time()
 
-        return observation, {'out_of_bounds': self.out_of_bounds,
-                             'wall_collisions': self.wall_collisions,
-                             'target': self.target_id, 'prompt': self.current_prompt}
+        return observation, {'target': self.target_id, 'prompt': self.current_prompt}
 
     def step(
             self, action: ActType
@@ -441,6 +443,11 @@ class WilsonMazeEnv(gym.Env):
             truncated, terminated = False, False
             reward = pick_up_coin(self.agent_pos, self.pick_up_coins, self)
 
+            if reward == 0.3:
+                self.good_picked_up_coins += 1
+            elif reward == -0.3:
+                self.bad_picked_up_coins += 1
+
         if self.render_mode == "human":
             self.render()
 
@@ -460,6 +467,8 @@ class WilsonMazeEnv(gym.Env):
         # self.time_steps.append(time.time() - start)
         return observation, reward, terminated, truncated, {'out_of_bounds': self.out_of_bounds,
                                                             'wall_collisions': self.wall_collisions,
+                                                            'good_pickup_coins': self.good_picked_up_coins,
+                                                            'bad_pickup_coins': self.bad_picked_up_coins,
                                                             'target': self.target_id, 'prompt': self.current_prompt}
 
     def render(self) -> RenderFrame | list[RenderFrame] | None:
