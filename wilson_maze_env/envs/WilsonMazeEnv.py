@@ -13,7 +13,7 @@ from wilson_maze_env.envs.utils.MazeCell import MazeCell
 from wilson_maze_env.envs.utils.bfs import find_shortest_path_bfs
 from wilson_maze_env.envs.utils.generate_svg import write_svg
 from wilson_maze_env.envs.utils.random_walks import random_walk
-from wilson_maze_env.envs.utils.rewards import calculate_reward_bounded_basic, calculate_reward_manhattan, pick_up_coin
+from wilson_maze_env.envs.utils.rewards import BAD_PICK_UP_COIN_REWARD, GOOD_PICK_UP_COIN_REWARD, calculate_reward_bounded_basic, calculate_reward_manhattan, pick_up_coin
 
 maze_char_map = {
     '-': 0,
@@ -443,9 +443,9 @@ class WilsonMazeEnv(gym.Env):
             truncated, terminated = False, False
             reward = pick_up_coin(self.agent_pos, self.pick_up_coins, self)
 
-            if reward == 0.3:
+            if reward == GOOD_PICK_UP_COIN_REWARD:
                 self.good_picked_up_coins += 1
-            elif reward == -0.3:
+            elif reward == BAD_PICK_UP_COIN_REWARD:
                 self.bad_picked_up_coins += 1
 
         if self.render_mode == "human":
@@ -512,7 +512,7 @@ class WilsonMazeEnv(gym.Env):
 
 
 if __name__ == '__main__':
-    env = WilsonMazeEnv(render_mode="human", size=7, timelimit=30, random_seed=42,
+    env = WilsonMazeEnv(render_mode="human", size=9, timelimit=30, random_seed=512,
                         add_coins=True, prompt_size=0, target_id=3, should_pickup_coins=True,
                         user_prompt=np.array([0, 0, 0, 0, 0, 0, 0, 0, 0]))
     
@@ -521,11 +521,12 @@ if __name__ == '__main__':
         for j in range(env.size):
             print(env.maze[i][j].value, end=' ')
         print()
+    a = input()
 
-    for i in range(1000):
-        action = env.action_space.sample()
-        obs, reward, terminated, truncated, info = env.step(action)
-        print(obs.shape, reward, terminated, truncated, info)
-        if terminated or truncated:
-            obs, info = env.reset()
+    # for i in range(1000):
+    #     action = env.action_space.sample()
+    #     obs, reward, terminated, truncated, info = env.step(action)
+    #     print(obs.shape, reward, terminated, truncated, info)
+    #     if terminated or truncated:
+    #         obs, info = env.reset()
     env.close()
