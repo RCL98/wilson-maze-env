@@ -4,9 +4,9 @@ import numpy as np
 from wilson_maze_env.envs import WilsonMazeEnv
 from .MazeCell import MazeCell
 
-GOOD_PICK_UP_COIN_REWARD = 1.0
-BAD_PICK_UP_COIN_REWARD = -1.0
-NO_COIN_REWARD = -1.0
+GOOD_PICK_UP_COIN_REWARD = 0.5
+BAD_PICK_UP_COIN_REWARD = -0.5
+NO_COIN_REWARD = -0.85
 
 REACH_TARGET_REWARD = 1.0
 ALL_COINS_REWARD = 3.0

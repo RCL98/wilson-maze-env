@@ -149,7 +149,7 @@ class WilsonMazeEnv(gym.Env):
         self.square_target_pos = (0, size - 1)
         self.diamond_target_pos = (size - 1, 0)
         self.targets_positions = []
-        for target in [self.triangle_target_pos, self.circle_target_pos, self.square_target_pos,
+        for target in [self.triangle_target_pos, self.square_target_pos, self.circle_target_pos,
                        self.diamond_target_pos]:
             self.targets_positions.append(np.array(target))
 
@@ -333,6 +333,7 @@ class WilsonMazeEnv(gym.Env):
             The observation is a concatenation of the agent position, the target position, the coins positions and values and
             the prompt if prompt_size is not 0 (in inverse order), where each position is normalized by the maze size.
         """
+        
         coins_obs = []
         if self.add_coins:
             for coin in self.coins:
@@ -341,7 +342,7 @@ class WilsonMazeEnv(gym.Env):
                     coins_obs.append(1)
                 else:
                     coins_obs.append(0)
-        coins_obs = np.hstack(coins_obs)
+            coins_obs = np.hstack(coins_obs)
 
         target_obs = np.hstack([np.array(target_pos) / (self.size - 1) for target_pos in self.targets_positions])
         non_prompt_obs = np.hstack([coins_obs, target_obs, np.array(self.agent_pos) / (self.size - 1)])
@@ -512,8 +513,8 @@ class WilsonMazeEnv(gym.Env):
 
 
 if __name__ == '__main__':
-    env = WilsonMazeEnv(render_mode="human", size=9, timelimit=30, random_seed=512,
-                        add_coins=True, prompt_size=0, target_id=3, should_pickup_coins=True,
+    env = WilsonMazeEnv(render_mode="human", size=7, timelimit=30, random_seed=512,
+                        add_coins=False, prompt_size=0, target_id=2, should_pickup_coins=True,
                         user_prompt=np.array([0, 0, 0, 0, 0, 0, 0, 0, 0]))
     
     obs, info = env.reset()
@@ -523,10 +524,10 @@ if __name__ == '__main__':
         print()
     a = input()
 
-    # for i in range(1000):
-    #     action = env.action_space.sample()
-    #     obs, reward, terminated, truncated, info = env.step(action)
-    #     print(obs.shape, reward, terminated, truncated, info)
-    #     if terminated or truncated:
-    #         obs, info = env.reset()
+    for i in range(1000):
+        action = env.action_space.sample()
+        obs, reward, terminated, truncated, info = env.step(action)
+        print(obs.shape, reward, terminated, truncated, info)
+        if terminated or truncated:
+            obs, info = env.reset()
     env.close()
