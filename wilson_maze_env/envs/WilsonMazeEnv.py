@@ -42,7 +42,7 @@ class WilsonMazeEnv(gym.Env):
     PICK_UP_COINS_ACTION = 4
 
     def __init__(self, render_mode="text", size=7, timelimit=60, random_seed=42,
-                 target_id=0, number_of_targets=4, add_coins=True, should_pickup_coins: bool | np.ndarray = False,
+                 number_of_targets=4, add_coins=True, variable_target=False,  labels: np.ndarray = False,
                  prompts: np.ndarray = None, user_prompt=None, prompt_size=0, chosen_prompt=None,
                  prompt_mean=False, terminate_on_wrong_target=False, reward_type='basic'):
         """
@@ -55,9 +55,10 @@ class WilsonMazeEnv(gym.Env):
                 timelimit (int): The time limit for the episode.
                 random_seed (int): The random seed to use for the environment.
                 add_coins (bool): Whether to add coins to the maze.
-                target_id (int): The id of the target to reach. Can be 0, 1, 2 or 3. 
                 number_of_targets (int): The number of targets to reach. Can be 1, 2, 3 or 4.
-                should_pickup_coins (bool | np.ndarray): Whether the agent should pick up coins.
+                target_id (int): The id of the target to reach. Can be 0, 1, 2 or 3.
+                variable_target (bool): Whether to change the target if certain conditions are met.
+                labels (np.ndarray): The labels to use for the environment. If add_coins is True, the labels must be a 2D array
                 prompts (np.nddaray): The prompts to use.
                 user_prompt (np.ndarray): The prompt to use for the current episode given directly by the user.
                 prompt_size (int): The size of the prompt to use.
@@ -75,9 +76,15 @@ class WilsonMazeEnv(gym.Env):
         self.terminate_on_wrong_target = terminate_on_wrong_target
         self.time_resets = []
         self.time_steps = []
-        self.number_of_targets = number_of_targets
+        self.variable_target = variable_target
 
+        assert labels is not None, 'Labels must be provided'
         assert user_prompt is not None or prompts is not None, 'Either user_prompt or prompts_file must be provided'
+        assert len(labels.shape) == 2, 'Labels must be a 2D array'
+        if user_prompt is None:
+            assert labels.shape[0] == prompts.shape[0], 'The number of prompts must be the same as the number of should_pickup_coins'
+        assert not (variable_target and chosen_prompt is not None), 'Cannot use variable_target and chosen_prompt at the same time'
+        assert not add_coins or labels.shape[1] == 2, 'Labels must have 2 columns if add_coins is True'
 
         self.current_prompt = None
         self.prompt_size = prompt_size
@@ -153,8 +160,13 @@ class WilsonMazeEnv(gym.Env):
                        self.diamond_target_pos]:
             self.targets_positions.append(np.array(target))
 
+        self.targets = labels[:, 0]
+        self.should_pickup_coins = labels[:, 1]
+        self.number_of_targets = min(number_of_targets, len(set(self.targets)))
+
         # Set the target and the current target position
-        self.target_id = target_id
+        self.target_id = labels[0][0]
+        self.pick_up_coins = labels[0][1]
         self.current_target_pos = self._get_current_target(self.target_id)
 
         # Set the wrong targets map
@@ -170,31 +182,20 @@ class WilsonMazeEnv(gym.Env):
         self.score = 0
 
         self._generate_base_maze(self.random_seed)
-        self._shortest_path = find_shortest_path_bfs(self.agent_pos, self.current_target_pos, self)
-        assert self._shortest_path is not None, 'No path found from agent to target'
+        self._shortest_paths = {}
+        for i in range(len(self.targets_positions)):
+            self._shortest_paths[i] = find_shortest_path_bfs(self.agent_pos, self._get_current_target(i), self)
+            assert self._shortest_paths[i], f'No path found from agent to target {i}'
+        
+        # assert len(self._shortest_paths) == self.number_of_targets, 'The number of shortest paths must be the same as the number of targets'
 
         # Set coins
         if self.add_coins:
             self.coins = []
 
-            if isinstance(should_pickup_coins, np.ndarray):
-                assert isinstance(prompts, np.ndarray), 'Prompts must be provided if should_pickup_coins is an array'
-                assert should_pickup_coins.shape[0] == prompts.shape[
-                    0], 'The number of prompts must be the same as the number of should_pickup_coins'
-                self.should_pickup_coins = should_pickup_coins
-            else:
-                self.should_pickup_coins = None
-                self.pick_up_coins = should_pickup_coins
-
-            for i, target_pos in enumerate(self.targets_positions):
-
-                if i != self.target_id:
-                    shortest_path = find_shortest_path_bfs(self.agent_pos, tuple(target_pos), self)
-                else:
-                    shortest_path = self._shortest_path
-                
-                for i, node in enumerate(shortest_path):
-                    if not np.any(np.all(node == np.vstack(self.targets_positions), axis=1)) and i % 2 == 1:
+            for i in range(len(self.targets_positions)):
+                for j, node in enumerate(self._shortest_paths[i]):
+                    if not np.any(np.all(node == np.vstack(self.targets_positions), axis=1)) and j % 2 == 1:
                         self.coins.append(np.array(node))
 
         # The observation space is a 2D array of size (size, size)
@@ -357,14 +358,23 @@ class WilsonMazeEnv(gym.Env):
 
         return np.hstack([prompt, non_prompt_obs])
 
+    def _change_target(self):
+        self.target_id = self.np_random.integers(0, self.number_of_targets, 1)[0]
+        self.current_target_pos = self._get_current_target(self.target_id)
+    
+    def _choose_prompt_for_variable_target(self):
+        idx_for_target = np.array(np.where(self.targets == self.target_id)).flatten()
+        self.current_prompt = self.np_random.choice(idx_for_target, 1)[0]
+
     def _change_target_prompt(self):
         if self.prompt_size and self.chosen_prompt is None and self.user_prompt is None:
-            self.current_prompt = self.np_random.integers(0, self.prompts.shape[0], 1)[0]
+            if self.variable_target:
+                self._choose_prompt_for_variable_target()
+            else:
+                self.current_prompt = self.np_random.integers(0, self.prompts.shape[0], 1)[0]
+            
             if self.add_coins:
-                if self.should_pickup_coins is None:
-                    self.pick_up_coins = self.pick_up_coins
-                else:
-                    self.pick_up_coins = self.should_pickup_coins[self.current_prompt]
+                self.pick_up_coins = self.should_pickup_coins[self.current_prompt]
 
     def action_masks(self) -> List[bool]:
         actions_mask = []
@@ -398,6 +408,8 @@ class WilsonMazeEnv(gym.Env):
         self.agent_pos = (self.size // 2, self.size // 2)
         self.visited_cells.clear()
         self.visited_cells.add(self.agent_pos)
+        if self.variable_target:
+            self._change_target()
         self._change_target_prompt()
 
         self.out_of_bounds = 0
@@ -513,21 +525,40 @@ class WilsonMazeEnv(gym.Env):
 
 
 if __name__ == '__main__':
-    env = WilsonMazeEnv(render_mode="human", size=7, timelimit=30, random_seed=512,
-                        add_coins=False, prompt_size=0, target_id=2, should_pickup_coins=True,
-                        user_prompt=np.array([0, 0, 0, 0, 0, 0, 0, 0, 0]))
+    # seeds for 9: 613, 313
+    X = np.random.randn(3000, 1000)
+    Y = np.ones((3000, 2))
+    Y[2][0] = 0
+    Y[3][0] = 0
+    Y[4][0] = 2
+    Y[5][0] = 2
+    Y[6][0] = 3
+    Y[7][0] = 3
+
+    _labels = [0, 0]
+    _user_prompt = X[20]
+
+    env = WilsonMazeEnv(render_mode="human", size=9, timelimit=30, random_seed=283,
+                        add_coins=True, prompt_size=10, labels=np.array([_labels]),
+                        variable_target=True, user_prompt=_user_prompt)
+                        # user_prompt=np.array([0, 0, 0, 0, 0, 0, 0, 0, 0]))
     
     obs, info = env.reset()
     for i in range(env.size):
         for j in range(env.size):
             print(env.maze[i][j].value, end=' ')
         print()
-    a = input()
+
+    targets = {0: 0, 1: 0, 2: 0, 3: 0}
 
     for i in range(1000):
         action = env.action_space.sample()
         obs, reward, terminated, truncated, info = env.step(action)
         print(obs.shape, reward, terminated, truncated, info)
-        if terminated or truncated:
+        if terminated or truncated or i % 15 == 0:
             obs, info = env.reset()
+        targets[info['target']] += 1
+    
+    print(targets)
+
     env.close()

@@ -31,7 +31,7 @@ def nr_of_coins_in_shortest_path(env: WilsonMazeEnv) -> tuple[int, int]:
 
     coins = np.vstack(env.coins)
     left_coins, initial_coins = 0, 0
-    for node in env._shortest_path:
+    for node in env._shortest_paths[env.target_id]:
         if env.maze[node[0]][node[1]].value == MazeCell.COIN_VALUE:
             left_coins += 1
         if np.any(np.all(node == coins, axis=1)):
@@ -157,7 +157,7 @@ def calculate_reward_bounded_basic(new_agent_pos: tuple[int, int], direction: st
 
         if tuple(new_agent_pos) in env.visited_cells:
             reward = MOVE_TO_VISITED_CELL_PENALTY
-        elif tuple(new_agent_pos) not in env._shortest_path:
+        elif tuple(new_agent_pos) not in env._shortest_paths[env.target_id]:
             reward = MOVE_TO_NON_SHORTEST_PATH_CELL_PENALTY
         else:
             reward = MOVE_PENALTY
