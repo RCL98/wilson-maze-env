@@ -32,7 +32,7 @@ def nr_of_coins_in_shortest_path(env: WilsonMazeEnv) -> tuple[int, int]:
     coins = np.vstack(env.coins)
     left_coins, initial_coins = 0, 0
     for node in env._shortest_paths[env.target_id]:
-        if env.maze[node[0]][node[1]].value == MazeCell.COIN_VALUE:
+        if env.maze[node[0]][node[1]].coin:
             left_coins += 1
         if np.any(np.all(node == coins, axis=1)):
             initial_coins += 1
@@ -93,15 +93,13 @@ def calculate_reward_manhattan(new_agent_pos: tuple[int, int], direction: str, e
         terminated = True
     else:
         # erase agent from current position
-        current_value = env.maze[env.agent_pos[0]][env.agent_pos[1]].value
-        env.change_cell_value_at_position(env.agent_pos, current_value - MazeCell.AGENT_VALUE)
+        env.maze[env.agent_pos[0]][env.agent_pos[1]].agent = False
 
         # change agent position
         env.agent_pos = new_agent_pos
 
         # update maze map
-        current_value = env.maze[env.agent_pos[0]][env.agent_pos[1]].value
-        env.change_cell_value_at_position(env.agent_pos, MazeCell.AGENT_VALUE + current_value)
+        env.maze[env.agent_pos[0]][env.agent_pos[1]].agent = True
 
         reward = MOVE_PENALTY - manhattan_distance(env.agent_pos, env.current_target_pos) / (env.size * np.sqrt(2))
 
@@ -144,20 +142,18 @@ def calculate_reward_bounded_basic(new_agent_pos: tuple[int, int], direction: st
         reward = reward_for_finishing(env)
         terminated = True
     else:
-        # erase agent from current position
-        current_value = env.maze[env.agent_pos[0]][env.agent_pos[1]].value
-        env.change_cell_value_at_position(env.agent_pos, current_value - MazeCell.AGENT_VALUE)
+         # erase agent from current position
+        env.maze[env.agent_pos[0]][env.agent_pos[1]].agent = False
 
         # change agent position
         env.agent_pos = new_agent_pos
 
         # update maze map
-        current_value = env.maze[env.agent_pos[0]][env.agent_pos[1]].value
-        env.change_cell_value_at_position(env.agent_pos, MazeCell.AGENT_VALUE + current_value)
+        env.maze[env.agent_pos[0]][env.agent_pos[1]].agent = True
 
-        if tuple(new_agent_pos) in env.visited_cells:
+        if env.maze[env.agent_pos[0]][env.agent_pos[1]].visited:
             reward = MOVE_TO_VISITED_CELL_PENALTY
-        elif tuple(new_agent_pos) not in env._shortest_paths[env.target_id]:
+        elif env.maze[env.agent_pos[0]][env.agent_pos[1]].short_path == env.target_id:
             reward = MOVE_TO_NON_SHORTEST_PATH_CELL_PENALTY
         else:
             reward = MOVE_PENALTY
@@ -171,8 +167,8 @@ def pick_up_coin(agent_pos: tuple[int, int], pick_up_coins: True, env: WilsonMaz
         Double penalize the agent for trying to pick up a coin when there is no coin at the current position.
     """
 
-    if env.maze[agent_pos[0]][agent_pos[1]].value == MazeCell.COIN_VALUE + MazeCell.AGENT_VALUE:
-        env.maze[agent_pos[0]][agent_pos[1]].value -= MazeCell.COIN_VALUE
+    if env.maze[agent_pos[0]][agent_pos[1]].coin:
+        env.maze[agent_pos[0]][agent_pos[1]].coin = False
         if pick_up_coins:
             return GOOD_PICK_UP_COIN_REWARD
         return BAD_PICK_UP_COIN_REWARD

@@ -142,7 +142,7 @@ class WilsonMazeEnv(gym.Env):
         # # Height and width of the maze image (excluding paddingding), in pixels
         # self.window_width = int(self.window_height * aspect_ratio)
 
-        self.maze = None
+        self.maze: list[list[MazeCell]] = None
         self.t0 = None
         self.out_of_bounds = None
         self.wall_collisions = None
@@ -177,7 +177,6 @@ class WilsonMazeEnv(gym.Env):
             self.diamond_target_pos: [self.square_target_pos, self.circle_target_pos, self.triangle_target_pos]
         }
 
-        self.visited_cells = set()
         self.steps = 0
         self.score = 0
 
@@ -243,9 +242,6 @@ class WilsonMazeEnv(gym.Env):
     def is_position_invalid(self, position) -> bool:
         return position[0] <= -1 or position[0] >= self.size or position[1] <= -1 or position[1] >= self.size
 
-    def change_cell_value_at_position(self, position, new_value) -> None:
-        self.maze[position[0]][position[1]].value = new_value
-
     def is_way_blocked(self, position: tuple[int, int], direction: str) -> bool:
         return not self.maze[position[0]][position[1]].can_go_direction(direction)
 
@@ -258,17 +254,17 @@ class WilsonMazeEnv(gym.Env):
         """
         np.random.seed(seed)
         # generate initial maze with empty cells
-        self.maze = [[MazeCell(-1) for _ in range(self.size)] for _ in range(self.size)]
+        self.maze = [[MazeCell() for _ in range(self.size)] for _ in range(self.size)]
 
         # choose first random cell
         x, y = self._choose_random_cell()
-        self.maze[x][y].value = 0
+        self.maze[x][y].already_belogns_to_maze = True
 
         remaining_cells = self.size * self.size - 1
         while remaining_cells > 0:
             # choose random walk starting point
             x, y = self._choose_random_cell()
-            if self.maze[x][y].value == 0:
+            if self.maze[x][y].already_belogns_to_maze:
                 continue
 
             remaining_cells -= random_walk(x, y, self)
@@ -279,16 +275,16 @@ class WilsonMazeEnv(gym.Env):
         """
         if self.add_coins:
             for coin in self.coins:
-                self.maze[coin[0]][coin[1]].value = MazeCell.COIN_VALUE
+                self.maze[coin[0]][coin[1]].coin = True
 
     def reset_maze_values(self):
         for i in range(self.size):
             for j in range(self.size):
-                self.maze[i][j].value = 0
+                self.maze[i][j].visited = False
 
-        self.maze[self.agent_pos[0]][self.agent_pos[1]].value = MazeCell.AGENT_VALUE
-        for target in self.targets_positions:
-            self.maze[target[0]][target[1]].value = MazeCell.TARGET_VALUE
+        self.maze[self.agent_pos[0]][self.agent_pos[1]].agent = True
+        for i, target in enumerate(self.targets_positions):
+            self.maze[target[0]][target[1]].target = i
 
         self._add_coins_to_maze()
 
@@ -305,16 +301,16 @@ class WilsonMazeEnv(gym.Env):
             maze_row = ['|']
             for x in range(self.size):
                 if self.maze[x][y].walls['E']:
-                    if self.maze[x][y].value == 1:
+                    if self.maze[x][y].agent:
                         maze_row.append('A|')
-                    elif self.maze[x][y].value == 10:
+                    elif self.maze[x][y].target != -1:
                         maze_row.append('T|')
                     else:
                         maze_row.append(' |')
                 else:
-                    if self.maze[x][y].value == 1:
+                    if self.maze[x][y].agent:
                         maze_row.append('A ')
-                    elif self.maze[x][y].value == 10:
+                    elif self.maze[x][y].target != -1:
                         maze_row.append('T ')
                     else:
                         maze_row.append('  ')
@@ -339,7 +335,7 @@ class WilsonMazeEnv(gym.Env):
         if self.add_coins:
             for coin in self.coins:
                 coins_obs.append(np.array(coin) / (self.size - 1))
-                if self.maze[coin[0]][coin[1]].value == MazeCell.COIN_VALUE:
+                if self.maze[coin[0]][coin[1]].coin:
                     coins_obs.append(1)
                 else:
                     coins_obs.append(0)
@@ -382,7 +378,7 @@ class WilsonMazeEnv(gym.Env):
             if action != self.__class__.PICK_UP_COINS_ACTION:
                 _, direction = self._action_to_direction[action]
                 actions_mask.append(self.maze[self.agent_pos[0]][self.agent_pos[1]].can_go_direction(direction))
-            elif self.maze[self.agent_pos[0]][self.agent_pos[1]].value == MazeCell.COIN_VALUE + MazeCell.AGENT_VALUE:
+            elif self.maze[self.agent_pos[0]][self.agent_pos[1]].coin:
                 actions_mask.append(True)
             else:
                 actions_mask.append(False)
@@ -406,8 +402,8 @@ class WilsonMazeEnv(gym.Env):
         self.reset_maze_values()
 
         self.agent_pos = (self.size // 2, self.size // 2)
-        self.visited_cells.clear()
-        self.visited_cells.add(self.agent_pos)
+        self.maze[self.agent_pos[0]][self.agent_pos[1]].agent = True
+        self.maze[self.agent_pos[0]][self.agent_pos[1]].visited = True
         if self.variable_target:
             self._change_target()
         self._change_target_prompt()
@@ -439,7 +435,7 @@ class WilsonMazeEnv(gym.Env):
     ) -> tuple[ObsType, SupportsFloat, bool, bool, dict[str, Any]]:
         # calculate new agent position
         # start = time.time()
-        self.visited_cells.add(tuple(self.agent_pos))
+        self.maze[self.agent_pos[0]][self.agent_pos[1]].visited = True
 
         if action != self.__class__.PICK_UP_COINS_ACTION:
             movement, direction = self._action_to_direction[action]
@@ -465,14 +461,6 @@ class WilsonMazeEnv(gym.Env):
             self.render()
 
         observation = self._get_obs()
-
-        # if self.random_target_on_step and self.steps >= self.size * np.sqrt(
-        #         2) and self.np_random.uniform(0, 1) >= 0.75:
-        #     self._change_target()
-        #     self._change_target_prompt_prompt()
-        #
-        # if self.prompt_size and self.np_random.uniform(0, 1) >= 0.75:
-        #     self._change_target_prompt_prompt()
 
         self.steps += 1
         self.score += reward
@@ -544,10 +532,10 @@ if __name__ == '__main__':
                         # user_prompt=np.array([0, 0, 0, 0, 0, 0, 0, 0, 0]))
     
     obs, info = env.reset()
-    for i in range(env.size):
-        for j in range(env.size):
-            print(env.maze[i][j].value, end=' ')
-        print()
+    # for i in range(env.size):
+    #     for j in range(env.size):
+    #         print(env.maze[i][j].value, end=' ')
+    #     print()
 
     targets = {0: 0, 1: 0, 2: 0, 3: 0}
 

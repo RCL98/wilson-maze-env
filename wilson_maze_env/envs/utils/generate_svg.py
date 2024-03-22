@@ -238,7 +238,7 @@ def write_svg(env: WilsonMazeEnv, filename: str = None) -> str:
                     write_wall(svg_string, x1, y1, x2, y2)
                 
                 # Draw coins
-                if env.maze[x][y].value == MazeCell.COIN_VALUE or env.maze[x][y].value == MazeCell.AGENT_VALUE + MazeCell.COIN_VALUE:
+                if env.maze[x][y].coin:
                     write_coin(svg_string, (x, y), scx, scy, env)
 
         # Draw the North and West maze border, which won't have been drawn

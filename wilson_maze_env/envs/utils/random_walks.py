@@ -47,14 +47,14 @@ def random_walk(x_start, y_start, env: WilsonMazeEnv) -> int:
                 x, y = last_x, last_y
                 continue
 
-            if env.maze[x][y].value == 0:
+            if env.maze[x][y].already_belogns_to_maze:
                 # we've reached a cell that already belongs to the maze paths
                 x, y = x_start, y_start
                 new_cells = 0
-                while env.maze[x][y].value != 0:
+                while not env.maze[x][y].already_belogns_to_maze:
                     new_cells += 1
                     # create cells and break walls
-                    env.maze[x][y].value = 0
+                    env.maze[x][y].already_belogns_to_maze = True
                     dir_, mov = directions[f'{x}-{y}']
                     env.maze[x][y].knock_wall(dir_)
 
@@ -65,7 +65,7 @@ def random_walk(x_start, y_start, env: WilsonMazeEnv) -> int:
                 env.maze[x][y].knock_wall(opposite_directions[direction])
 
                 return new_cells
-            elif env.maze[x][y].value == -2:
+            elif env.maze[x][y].passed_while_generating:
                 directions[f'{x}-{y}'] = (direction, movement)
             else:
-                env.maze[x][y].value = -2
+                env.maze[x][y].passed_while_generating = True
