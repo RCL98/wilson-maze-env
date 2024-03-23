@@ -162,7 +162,7 @@ class WilsonMazeEnv(gym.Env):
 
         self.targets = labels[:, 0]
         self.should_pickup_coins = labels[:, 1]
-        self.number_of_targets = min(number_of_targets, len(set(self.targets)))
+        self.number_of_targets = number_of_targets
 
         # Set the target and the current target position
         self.target_id = labels[0][0]
@@ -191,11 +191,13 @@ class WilsonMazeEnv(gym.Env):
         # Set coins
         if self.add_coins:
             self.coins = []
+            self.initial_coins = {i: 0 for i in range(self.number_of_targets)}
 
             for i in range(len(self.targets_positions)):
                 for j, node in enumerate(self._shortest_paths[i]):
                     if not np.any(np.all(node == np.vstack(self.targets_positions), axis=1)) and j % 2 == 1:
                         self.coins.append(np.array(node))
+                        self.initial_coins[i] += 1
 
         # The observation space is a 2D array of size (size, size)
         self.observation_shape = (self.size, self.size)
@@ -244,6 +246,16 @@ class WilsonMazeEnv(gym.Env):
 
     def is_way_blocked(self, position: tuple[int, int], direction: str) -> bool:
         return not self.maze[position[0]][position[1]].can_go_direction(direction)
+    
+    def _get_initial_coins(self):
+        return self.initial_coins[self.target_id]
+    
+    def _get_current_coins(self):
+        current_coins = 0
+        for node in self._shortest_paths[self.target_id]:
+            if self.maze[node[0]][node[1]].coin:
+                current_coins += 1
+        return current_coins
 
     def _generate_base_maze(self, seed=42) -> None:
         """
@@ -465,12 +477,22 @@ class WilsonMazeEnv(gym.Env):
         self.steps += 1
         self.score += reward
 
+        info = {'out_of_bounds': self.out_of_bounds,
+                'wall_collisions': self.wall_collisions,
+                'target': self.target_id, 'prompt': self.current_prompt}
+        
+        if self.add_coins:
+            info['good_pickup_coins'] = self.good_picked_up_coins
+            info['bad_pickup_coins'] = self.bad_picked_up_coins
+
+            if self.chosen_prompt is not None or self.user_prompt is not None:
+                if self.pick_up_coins:
+                    info['coins_wins'] = 1 - (self._get_current_coins() / self._get_initial_coins())
+                else:
+                    info['coins_wins'] = self._get_current_coins() / self._get_initial_coins()
+
         # self.time_steps.append(time.time() - start)
-        return observation, reward, terminated, truncated, {'out_of_bounds': self.out_of_bounds,
-                                                            'wall_collisions': self.wall_collisions,
-                                                            'good_pickup_coins': self.good_picked_up_coins,
-                                                            'bad_pickup_coins': self.bad_picked_up_coins,
-                                                            'target': self.target_id, 'prompt': self.current_prompt}
+        return observation, reward, terminated, truncated, info
 
     def render(self) -> RenderFrame | list[RenderFrame] | None:
         if self.render_mode != "text":
@@ -523,7 +545,7 @@ if __name__ == '__main__':
     Y[6][0] = 3
     Y[7][0] = 3
 
-    _labels = [0, 0]
+    _labels = [0, 1]
     _user_prompt = X[20]
 
     env = WilsonMazeEnv(render_mode="human", size=9, timelimit=30, random_seed=283,

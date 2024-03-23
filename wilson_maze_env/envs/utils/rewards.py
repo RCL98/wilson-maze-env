@@ -23,34 +23,19 @@ MOVE_PENALTY = -0.05
 def manhattan_distance(a, b):
     return np.sum(np.abs(np.array(a) - np.array(b))).item()
 
-def nr_of_coins_in_shortest_path(env: WilsonMazeEnv) -> tuple[int, int]:
-    """
-        Returns the number of coins left in the shortest path to the target and
-        the initial number of coins in the shortest path to the target.
-    """
-
-    coins = np.vstack(env.coins)
-    left_coins, initial_coins = 0, 0
-    for node in env._shortest_paths[env.target_id]:
-        if env.maze[node[0]][node[1]].coin:
-            left_coins += 1
-        if np.any(np.all(node == coins, axis=1)):
-            initial_coins += 1
-
-    return left_coins, initial_coins
-
 def reward_for_finishing(env: WilsonMazeEnv) -> float:
     if not env.add_coins:
         return REACH_TARGET_REWARD
     
-    left_coins, init_coins = nr_of_coins_in_shortest_path(env)
+    current_coins = env._get_current_coins()
+    init_coins = env._get_initial_coins()
     if env.pick_up_coins:
-        if left_coins == 0:
+        if current_coins == 0:
             reward = ALL_COINS_REWARD
         else:
             reward = REACH_TARGET_REWARD
     else:
-        if left_coins == init_coins:
+        if current_coins == init_coins:
             reward = REACH_TARGET_REWARD
         else:
             reward = ALL_COINS_REWARD
