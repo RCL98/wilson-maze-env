@@ -1,6 +1,7 @@
 import io
 import struct
 import time
+import math
 from typing import Any, SupportsFloat, List
 
 import numpy as np
@@ -113,7 +114,11 @@ class WilsonMazeEnv(gym.Env):
 
             if prompts is not None:
                 if prompt_mean:
-                    assert prompts.shape[1] % self.prompt_size == 0
+                    if prompts.shape[1] % self.prompt_size != 0:
+                        factor = math.ceil(prompts.shape[1] / self.prompt_size)
+                        total_size = factor * self.prompt_size
+                        prompts = np.pad(prompts, [(0, 0), (0, total_size - prompts.shape[1])], mode='constant')
+                        
                     prompts = np.mean(
                         np.split(prompts, prompts.shape[1] // self.prompt_size, axis=1), axis=0)
                 else:
@@ -121,6 +126,10 @@ class WilsonMazeEnv(gym.Env):
 
                 self.prompts = prompts
             elif prompt_mean:
+                if user_prompt.shape[0] % self.prompt_size != 0:
+                    factor = math.ceil(user_prompt.shape[0] / self.prompt_size)
+                    total_size = factor * self.prompt_size
+                    user_prompt = np.pad(user_prompt, (0, total_size - user_prompt.shape[0]), mode='constant')
                 self.user_prompt = np.mean(np.split(user_prompt, user_prompt.shape[0] // self.prompt_size, axis=0),
                                            axis=0)
             else:
@@ -594,7 +603,7 @@ class WilsonMazeEnv(gym.Env):
 
 if __name__ == '__main__':
     # seeds for 9: 613, 313
-    X = np.random.randn(3000, 1000)
+    X = np.random.randn(3000, 2560)
     Y = np.ones((3000, 2))
     Y[2][0] = 0
     Y[3][0] = 0
@@ -607,8 +616,8 @@ if __name__ == '__main__':
     _user_prompt = X[20]
 
     env = WilsonMazeEnv(render_mode="human", size=9, timelimit=30, random_seed=283,
-                        add_coins=True, prompt_size=10, labels=np.array([_labels]),
-                        variable_target=True, user_prompt=_user_prompt)
+                        add_coins=True, prompt_size=1024, labels=np.array([_labels]),
+                        variable_target=False, user_prompt=_user_prompt, prompt_mean=True)
     # user_prompt=np.array([0, 0, 0, 0, 0, 0, 0, 0, 0]))
 
     obs, info = env.reset()
@@ -619,7 +628,7 @@ if __name__ == '__main__':
 
     targets = {0: 0, 1: 0, 2: 0, 3: 0}
 
-    for i in range(1000):
+    for i in range(10):
         action = env.action_space.sample()
         obs, reward, terminated, truncated, info = env.step(action)
         print(obs.shape, reward, terminated, truncated, info)
